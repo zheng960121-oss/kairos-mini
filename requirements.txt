@@ -1,0 +1,2 @@
+# kairos-mini requirements
+croniter>=2.0.0
