@@ -1,0 +1,18 @@
+[
+  {
+    "id": "task_20260402170925_0",
+    "name": "test",
+    "description": "测试任务",
+    "status": "completed",
+    "priority": "normal",
+    "created_at": "2026-04-02T17:09:25.614778",
+    "scheduled_at": null,
+    "started_at": "2026-04-02T17:09:25.615085",
+    "completed_at": "2026-04-02T17:09:25.615234",
+    "result": "完成: 测试任务",
+    "error": null,
+    "retry_count": 0,
+    "max_retries": 3,
+    "metadata": {}
+  }
+]

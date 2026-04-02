@@ -1,0 +1,9 @@
+{
+  "name": "KAIROS-mini",
+  "version": "0.1.0",
+  "description": "轻量级主动助手心跳引擎",
+  "tech_stack": [
+    "Python 3"
+  ],
+  "created_at": "2026-04-02T17:09:25.590485"
+}

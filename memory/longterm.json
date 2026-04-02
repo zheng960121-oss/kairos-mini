@@ -1,0 +1,12 @@
+{
+  "events": [
+    {
+      "type": "test",
+      "content": "测试事件",
+      "timestamp": "2026-04-02T17:09:25.591191",
+      "metadata": {}
+    }
+  ],
+  "decisions": [],
+  "learnings": []
+}
