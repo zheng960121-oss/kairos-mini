@@ -7,12 +7,15 @@ KAIROS-mini 2.0 - 单进程常驻模型
     python main.py                    # 前台运行
     python main.py --daemon           # 后台运行
     python main.py --stop             # 停止后台进程
+    python main.py --dashboard        # 启动并打开 Web Dashboard
+    python main.py --run-once         # 单次执行（测试用）
 
 设计要点:
 - 单进程 + Signal/atexit 管理生命周期（无 watchdog）
 - Cron 表达式调度（不只是固定 interval）
 - Append-only daily log 记忆系统
 - 文件锁保护并发
+- Web Dashboard (http://localhost:8080)
 """
 
 import os
@@ -24,9 +27,10 @@ import argparse
 import json
 import fcntl
 import threading
+import webbrowser
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 # 导入核心模块
 from StateManager import StateManager, SessionCronTask
@@ -35,6 +39,7 @@ from CronTab import CronTab
 from Notifier import Notifier
 from SkillInvoker import SkillInvoker
 from OpenClawIntegration import OpenClawIntegration
+from web_dashboard import DashboardServer, DashboardData
 
 
 class KAIROSmini:
@@ -77,6 +82,9 @@ class KAIROSmini:
         self._running = False
         self._tick_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
+        
+        # Dashboard
+        self._dashboard_server: Optional[DashboardServer] = None
         
         # 注册 Signal 处理
         self._register_signals()
@@ -137,6 +145,13 @@ class KAIROSmini:
         print(f"[KAIROS-mini] 清理资源...")
         self._stop_event.set()
         
+        # 停止 Dashboard
+        if self._dashboard_server:
+            try:
+                self._dashboard_server.stop()
+            except Exception:
+                pass
+        
         # 关闭文件锁
         if self._lock_fd:
             try:
@@ -167,7 +182,7 @@ class KAIROSmini:
     
     # ---- 启动/停止 ----
     
-    def start(self) -> bool:
+    def start(self, dashboard_port: int = None, open_browser_dashboard: bool = False) -> bool:
         """启动 KAIROS-mini"""
         # 检查锁
         if not self.acquire_lock():
@@ -182,6 +197,10 @@ class KAIROSmini:
         print(f"[KAIROS-mini] Workspace: {self.workspace}")
         print(f"[KAIROS-mini] Tick Interval: {self.tick_interval}s")
         print(f"[KAIROS-mini] CronTab tasks file: {self.crontab.tasks_file}")
+        
+        # 启动 Web Dashboard
+        if dashboard_port:
+            self._start_dashboard(dashboard_port, open_browser_dashboard)
         
         # 记录启动
         self.memdir.append_memory(
@@ -207,8 +226,21 @@ class KAIROSmini:
         if self._tick_thread and self._tick_thread.is_alive():
             self._tick_thread.join(timeout=5)
         
+        if self._dashboard_server:
+            self._dashboard_server.stop()
+        
         print(f"[KAIROS-mini] 已停止")
         sys.exit(0)
+    
+    # ---- Web Dashboard ----
+    
+    def _start_dashboard(self, port: int = 8080, open_browser: bool = False):
+        """启动 Web Dashboard"""
+        self._dashboard_data = DashboardData()
+        self._dashboard_data.update(kairos=self, state=self.state, memdir=self.memdir)
+        self._dashboard_server = DashboardServer(port=port, data=self._dashboard_data)
+        self._dashboard_server.start(kairos=self)
+        print(f"[KAIROS-mini] 🌐 Dashboard 启动: http://localhost:{port}/")
     
     # ---- Tick 引擎 ----
     
@@ -379,6 +411,12 @@ def main():
                        help='列出所有任务')
     parser.add_argument('--run-once', action='store_true',
                        help='运行一次后退出（测试用）')
+    parser.add_argument('--dashboard', action='store_true',
+                       help='启动 Web Dashboard')
+    parser.add_argument('--dashboard-port', type=int, default=8080,
+                       help='Dashboard 端口 (默认: 8080)')
+    parser.add_argument('--open-browser', action='store_true',
+                       help='启动后自动打开浏览器')
     
     args = parser.parse_args()
     
@@ -441,7 +479,8 @@ def main():
         return
     
     # 正常启动
-    if kairos.start():
+    dashboard_port = args.dashboard_port if args.dashboard else None
+    if kairos.start(dashboard_port=dashboard_port, open_browser_dashboard=args.open_browser):
         print("[KAIROS-mini] 运行中，按 Ctrl+C 停止")
         try:
             # 主线程等待
