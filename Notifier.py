@@ -224,3 +224,16 @@ class Notifier:
                     # 重新放回队列
                     self.pending.insert(0, notif)
                     break
+
+
+# ---- 全局单例 ----
+_notifier: Optional[Notifier] = None
+
+
+def get_notifier(queue_file: Optional[Path] = None,
+                 heartbeat_file: Optional[Path] = None) -> Notifier:
+    """获取 Notifier 单例（确保同一实例）"""
+    global _notifier
+    if _notifier is None:
+        _notifier = Notifier(queue_file=queue_file, heartbeat_file=heartbeat_file)
+    return _notifier

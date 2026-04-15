@@ -54,7 +54,7 @@ TASK_HISTORY_FILE = TASK_DIR / "history.json"
 FAILURE_COUNT_FILE = TASK_DIR / "failure_count.json"
 
 # 默认任务超时（秒）
-DEFAULT_TASK_TIMEOUT = 300  # 5 分钟
+DEFAULT_TASK_TIMEOUT = 3600  # 1 小时
 
 # 连续失败报警阈值
 CONSECUTIVE_FAILURE_ALERT_THRESHOLD = 3
@@ -105,7 +105,22 @@ class Task:
 
     @classmethod
     def from_dict(cls, data: dict) -> "Task":
-        return cls(**data)
+        # 补全默认字段，防止旧队列数据缺少字段导致崩溃
+        defaults = {
+            "status": TaskStatus.PENDING.value,
+            "priority": TaskPriority.NORMAL.value,
+            "scheduled_at": None,
+            "started_at": None,
+            "completed_at": None,
+            "result": None,
+            "error": None,
+            "retry_count": 0,
+            "max_retries": 3,
+            "timeout": DEFAULT_TASK_TIMEOUT,
+            "metadata": {},
+        }
+        filled = dict(defaults, **data)
+        return cls(**filled)
 
 
 @contextmanager
@@ -190,7 +205,7 @@ class TaskQueue:
         count = self._failure_count.get(task_name, 0)
         if count >= CONSECUTIVE_FAILURE_ALERT_THRESHOLD:
             try:
-                from notifier import get_notifier
+                from Notifier import get_notifier
                 n = get_notifier()
                 n.alert(
                     f"⚠️ 任务 [{task_name}] 连续失败 {count} 次！"
@@ -281,7 +296,8 @@ class TaskQueue:
                 runnable = []
                 delayed = []
                 for t in queue:
-                    if t["status"] == TaskStatus.PENDING.value:
+                    status = t.get("status", TaskStatus.PENDING.value)
+                    if status == TaskStatus.PENDING.value:
                         if t.get("scheduled_at"):
                             try:
                                 scheduled = datetime.fromisoformat(t["scheduled_at"])
@@ -305,7 +321,8 @@ class TaskQueue:
             with _file_lock(TASK_QUEUE_FILE, exclusive=False) as (queue, fd):
                 now = datetime.now()
                 for i, t in enumerate(queue):
-                    if t["status"] != TaskStatus.PENDING.value:
+                    status = t.get("status", TaskStatus.PENDING.value)
+                    if status != TaskStatus.PENDING.value:
                         continue
                     if t.get("scheduled_at"):
                         try:
@@ -326,7 +343,7 @@ class TaskQueue:
             with _file_lock(TASK_QUEUE_FILE, exclusive=True) as (queue, fd):
                 updated = False
                 for t in queue:
-                    if t["id"] == task_id:
+                    if t.get("id") == task_id:
                         t["status"] = TaskStatus.RUNNING.value
                         t["started_at"] = datetime.now().isoformat()
                         updated = True
@@ -347,7 +364,7 @@ class TaskQueue:
                 remaining = []
                 completed = None
                 for t in queue:
-                    if t["id"] == task_id:
+                    if t.get("id") == task_id:
                         t["status"] = TaskStatus.COMPLETED.value
                         t["completed_at"] = datetime.now().isoformat()
                         t["result"] = result
@@ -368,7 +385,7 @@ class TaskQueue:
                         pass
 
                     # 重置失败计数
-                    self._reset_failure(completed["name"])
+                    self._reset_failure(completed.get("name", "unknown"))
 
                 fd_q.seek(0)
                 fd_q.truncate()
@@ -383,7 +400,7 @@ class TaskQueue:
                 remaining = []
                 failed = None
                 for t in queue:
-                    if t["id"] == task_id:
+                    if t.get("id") == task_id:
                         t["retry_count"] = t.get("retry_count", 0) + 1
                         t["error"] = error
 
@@ -392,7 +409,7 @@ class TaskQueue:
                             t["status"] = TaskStatus.TIMEOUT.value
                             t["completed_at"] = datetime.now().isoformat()
                             failed = t
-                            _get_log().warning(f"任务超时: {task_id} [{t['name']}]")
+                            _get_log().warning(f"任务超时: {task_id} [{t.get('name', 'unknown')}]")
                         elif t["retry_count"] < t.get("max_retries", 3):
                             t["status"] = TaskStatus.PENDING.value
                             t["started_at"] = None
@@ -417,9 +434,9 @@ class TaskQueue:
                         pass
 
                     # 增加失败计数
-                    count = self._increment_failure(failed["name"])
+                    count = self._increment_failure(failed.get("name", "unknown"))
                     _get_log().warning(
-                        f"任务失败: {task_id} [{failed['name']}] "
+                        f"任务失败: {task_id} [{failed.get('name', 'unknown')}] "
                         f"(第 {count} 次连续失败)"
                     )
                     # 检查是否报警
@@ -439,7 +456,7 @@ class TaskQueue:
                 remaining = []
                 cancelled = None
                 for t in queue:
-                    if t["id"] == task_id:
+                    if t.get("id") == task_id:
                         t["status"] = TaskStatus.CANCELLED.value
                         t["completed_at"] = datetime.now().isoformat()
                         cancelled = t
@@ -478,8 +495,8 @@ class TaskQueue:
             with _file_lock(TASK_QUEUE_FILE, exclusive=False) as (queue, fd_q):
                 with _file_lock(TASK_HISTORY_FILE, exclusive=False) as (hist, fd_h):
                     stats = {
-                        "pending": sum(1 for t in queue if t["status"] == TaskStatus.PENDING.value),
-                        "running": sum(1 for t in queue if t["status"] == TaskStatus.RUNNING.value),
+                        "pending": sum(1 for t in queue if t.get("status", TaskStatus.PENDING.value) == TaskStatus.PENDING.value),
+                        "running": sum(1 for t in queue if t.get("status") == TaskStatus.RUNNING.value),
                         "total_queue": len(queue),
                         "total_history": len(hist),
                         "handlers_registered": list(self._handlers.keys()),
@@ -488,7 +505,7 @@ class TaskQueue:
                     }
                     for status in TaskStatus:
                         stats[f"history_{status.value}"] = sum(
-                            1 for t in hist if t["status"] == status.value
+                            1 for t in hist if t.get("status") == status.value
                         )
                     return stats
         except Exception as e:
@@ -555,6 +572,14 @@ class TaskQueue:
                 signal.alarm(0)
                 signal.signal(signal.SIGALRM, old_alarm or signal.SIG_DFL)
 
+    def refresh(self):
+        """
+        从文件重新加载队列（用于跨进程同步）
+        
+        当任务队列被外部进程修改后，调用此方法刷新内存中的队列状态
+        """
+        self._queue_cache = None  # 清除缓存，下次 get_pending_tasks 会重新读取
+
     def process_all(self) -> list:
         """
         处理所有可执行任务
@@ -601,12 +626,35 @@ def check_system_health(task) -> str:
 def example_notification_task(task) -> str:
     """发送示例通知"""
     try:
-        from notifier import get_notifier
+        from Notifier import get_notifier
         n = get_notifier()
         n.info(f"来自任务的通知: {task.description}")
         return "通知已发送"
     except Exception as e:
         return f"发送失败: {e}"
+
+
+def _auto_register_handlers():
+    """自动注册所有处理器（模块加载时调用）"""
+    tq = get_task_queue()
+    
+    # 注册内置处理器
+    tq.register_handler("check_health", check_system_health)
+    tq.register_handler("notify", example_notification_task)
+    
+    # 尝试注册task_handlers
+    try:
+        from task_handlers import register_all_handlers
+        register_all_handlers(tq)
+        print("[tasks] task_handlers 注册成功")
+    except ImportError:
+        print("[tasks] task_handlers 未找到，跳过")
+    except Exception as e:
+        print(f"[tasks] task_handlers 注册失败: {e}")
+
+
+# 模块加载时自动注册处理器
+_auto_register_handlers()
 
 
 if __name__ == "__main__":

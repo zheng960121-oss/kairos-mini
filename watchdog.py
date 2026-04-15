@@ -151,7 +151,7 @@ class Watchdog:
         """连续失败后报警（写通知文件）"""
         try:
             sys.path.insert(0, str(Path(__file__).parent))
-            from notifier import get_notifier
+            from Notifier import get_notifier
             n = get_notifier()
             n.alert(
                 f"⚠️ KAIROS-mini 连续重启失败 {MAX_CONSECUTIVE_FAILURES} 次！"

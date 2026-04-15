@@ -199,6 +199,10 @@ class MemDir:
         搜索记忆内容（供 AI 调用）
         简单 grep 风格搜索
         """
+
+    def query_memories(self, query: str, days: int = 30) -> List[str]:
+        """query_memories 的别名，保持向后兼容"""
+        return self.search_memory(query, days)
         results = []
         recent = self.read_recent_logs(days)
         

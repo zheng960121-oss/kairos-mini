@@ -1,0 +1,46 @@
+[
+  {
+    "id": "local_1",
+    "content": "Hindsight 是一个 Agent 记忆系统",
+    "type": "fact",
+    "entities": [],
+    "tags": [],
+    "metadata": {},
+    "context": null,
+    "timestamp": "2026-04-07T10:54:03.095146"
+  },
+  {
+    "id": "local_2",
+    "content": "用户让我帮他下载并安装 Hindsight",
+    "type": "experience",
+    "entities": [],
+    "tags": [],
+    "metadata": {},
+    "context": null,
+    "timestamp": "2026-04-07T10:54:03.095285"
+  },
+  {
+    "id": "local_3",
+    "content": "用户倾向于使用中文交流",
+    "type": "mental_model",
+    "entities": [],
+    "tags": [],
+    "metadata": {},
+    "context": null,
+    "timestamp": "2026-04-07T10:54:03.095372"
+  },
+  {
+    "id": "local_4",
+    "content": "用户正在学习 AI 编程",
+    "type": "experience",
+    "entities": [],
+    "tags": [
+      "AI",
+      "学习",
+      "用户偏好"
+    ],
+    "metadata": {},
+    "context": null,
+    "timestamp": "2026-04-07T10:54:03.095448"
+  }
+]

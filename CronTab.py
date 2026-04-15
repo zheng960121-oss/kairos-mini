@@ -187,6 +187,12 @@ class CronTab:
         with open(self.tasks_file, 'w', encoding='utf-8') as f:
             json.dump(tasks, f, indent=2, ensure_ascii=False)
     
+    def save_tasks_to_file(self, path: Path):
+        """保存任务到指定路径（Fix #1）"""
+        tasks = self._read_file_tasks()
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(tasks, f, indent=2, ensure_ascii=False)
+    
     def add_file_task(self, task: Dict) -> str:
         """添加文件任务"""
         tasks = self._read_file_tasks()

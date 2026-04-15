@@ -39,7 +39,7 @@ class KairosFormatter(logging.Formatter):
         logging.INFO:     GREEN + "[%(asctime)s] [%(name)s] [INF] %(message)s" + RESET,
         logging.WARNING:  YELLOW + "[%(asctime)s] [%(name)s] [WRN] %(message)s" + RESET,
         logging.ERROR:    RED + "[%(asctime)s] [%(name)s] [ERR] %(message)s" + RESET,
-        logging.CITICAL: RED + "[%(asctime)s] [%(name)s] [CRT] %(message)s" + RESET,
+        logging.CRITICAL: RED + "[%(asctime)s] [%(name)s] [CRT] %(message)s" + RESET,
     }
 
     def format(self, record):

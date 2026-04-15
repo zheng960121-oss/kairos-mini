@@ -48,10 +48,10 @@ class KAIROSmini:
     整合所有模块，单进程常驻
     """
     
-    def __init__(self, workspace: Path, tick_interval: int = 300,
+    def __init__(self, workspace: Path, tick_interval: int = 900,
                  kairos_active: bool = True, user_opt_in: bool = False):
         self.workspace = Path(workspace)
-        self.tick_interval = tick_interval  # fallback tick interval (秒)
+        self.tick_interval = tick_interval  # 使用传入的参数值
         
         # 初始化 StateManager
         self.state = StateManager.get_instance()
@@ -97,6 +97,25 @@ class KAIROSmini:
     def acquire_lock(self) -> bool:
         """获取文件锁（防止多实例）"""
         self.lock_file.parent.mkdir(parents=True, exist_ok=True)
+        
+        # ---- Fix #6: 清理残留锁文件 ----
+        # 如果锁文件存在，先检查 PID 是否还活着
+        if self.lock_file.exists():
+            try:
+                lock_content = self.lock_file.read_text().strip()
+                if lock_content:
+                    old_pid = int(lock_content)
+                    # 检查 PID 是否存活
+                    try:
+                        os.kill(old_pid, 0)  # signal 0 只是检查进程是否存在
+                    except OSError:
+                        # 进程已死，删除残留锁文件
+                        print(f"[KAIROS-mini] 清理残留锁文件 (stale PID: {old_pid})")
+                        self.lock_file.unlink()
+            except (ValueError, FileNotFoundError):
+                # 无效内容，删除残留锁文件
+                self.lock_file.unlink()
+        
         self._lock_fd = os.open(self.lock_file, os.O_RDWR | os.O_CREAT)
         try:
             fcntl.flock(self._lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -184,8 +203,8 @@ class KAIROSmini:
     
     def start(self, dashboard_port: int = None, open_browser_dashboard: bool = False) -> bool:
         """启动 KAIROS-mini"""
-        # 检查锁
-        if not self.acquire_lock():
+        # 检查锁（如果已经获取过就跳过）
+        if self._lock_fd is None and not self.acquire_lock():
             print(f"[KAIROS-mini] 无法获取锁，可能已有实例在运行")
             return False
         
@@ -271,7 +290,7 @@ class KAIROSmini:
         self._fallback_tick()
     
     def _fallback_tick(self):
-        """强制心跳"""
+        """强制心跳 + 执行待处理任务"""
         self.state.tick_count += 1
         self.state.last_interaction = datetime.now()
         
@@ -281,8 +300,16 @@ class KAIROSmini:
         # 更新 heartbeat
         self._update_heartbeat()
         
+        # 执行待处理任务（每次tick都检查）
+        self._execute_pending_tasks()
+        
         # 触发所有 tick hooks
         self.state.fire_tick(context)
+        
+        # ---- Fix #1: 持久化状态到磁盘 ----
+        # 每 3 个 tick 保存一次状态（避免频繁IO）
+        if self.state.tick_count % 3 == 0:
+            self._persist_state()
         
         # 记录到记忆
         if self.state.tick_count % 10 == 0:  # 每 10 次 tick 记录一次
@@ -290,6 +317,24 @@ class KAIROSmini:
                 f"心跳 #{self.state.tick_count} | 最后交互: {self.state.last_interaction.strftime('%H:%M')}",
                 "heartbeat"
             )
+    
+    def _execute_pending_tasks(self):
+        """执行待处理的任务"""
+        try:
+            # 延迟导入避免循环依赖
+            from tasks import get_task_queue
+            tq = get_task_queue()
+            tq.refresh()  # 从文件重新加载，确保获取其他进程添加的任务
+            pending = tq.get_pending_tasks()
+
+            if pending:
+                print(f"[KAIROS-mini] 发现 {len(pending)} 个待处理任务，开始执行...")
+                # 使用 process_all() 统一处理，避免 execute_next() 与 pending 快照不匹配的问题
+                results = tq.process_all()
+                for task_id, success, msg in results:
+                    print(f"[KAIROS-mini] 任务 {task_id} {'✅' if success else '❌'} {str(msg)[:100]}")
+        except Exception as e:
+            print(f"[KAIROS-mini] 执行任务失败: {e}")
     
     def _build_context(self) -> Dict[str, Any]:
         """构建 tick 上下文"""
@@ -308,17 +353,90 @@ class KAIROSmini:
     
     def _execute_task(self, task: Dict):
         """执行到期任务"""
-        print(f"[KAIROS-mini] 执行任务: {task.get('id')} - {task.get('prompt', '')[:50]}...")
-        
-        # TODO: 根据 agent_id 路由到对应 agent
-        # 目前直接在主进程执行
+        task_id = task.get('id', '')
+        task_name = task.get('name', '')
         prompt = task.get('prompt', '')
         
-        if prompt:
+        print(f"[KAIROS-mini] 执行任务: {task_id} - {prompt[:50]}...")
+        
+        # 根据任务类型路由
+        if task_name in ('write_chapter', 'novel_chapter', 'ai_task', 'claude_task'):
+            # 使用本地模型执行AI任务
+            self._execute_ai_task(task)
+            return
+        elif prompt:
             # 追加到记忆（作为待处理事项）
             self.memdir.append_memory(
                 f"[Cron Task] {prompt}",
                 "task"
+            )
+    
+    def _execute_ai_task(self, task: Dict):
+        """使用本地模型执行AI任务（Claude Code + Ollama）"""
+        try:
+            from task_handlers import get_ollama_executor
+            
+            executor = get_ollama_executor()
+            task_name = task.get('name', '')
+            prompt = task.get('prompt', '')
+            metadata = task.get('metadata', {})
+            
+            print(f"[KAIROS-mini] 使用本地模型执行: {executor.model}")
+            
+            # 写小说章节
+            if task_name in ('write_chapter', 'novel_chapter'):
+                chapter_num = metadata.get('chapter_num', 1)
+                outline_file = metadata.get('outline_file', '')
+                output_file = metadata.get('output_file', '')
+                novel_path = metadata.get('novel_path', '')
+                
+                result = executor.execute(
+                    prompt=f"""你是一个专业的玄幻小说作家。请根据以下要求写小说章节：
+
+{prompt}
+
+写作要求：
+- 字数：3500-4000字
+- 风格：热血燃系，节奏快
+- 人物：林寒（主角，时间血脉）、周蛮（好兄弟）、苏幼微（女主）
+- 格式：每个段落之间空一行，章节结尾用"**（第{chapter_num}章完）**"
+- 直接输出正文，不要任何解释
+
+请开始写作：""",
+                    task_name=f"第{chapter_num}章",
+                    output_file=output_file if output_file else None,
+                    timeout=600
+                )
+            else:
+                # 通用AI任务
+                result = executor.execute(
+                    prompt=prompt,
+                    task_name=task_name,
+                    timeout=300
+                )
+            
+            if result['success']:
+                output = result.get('stdout', '执行成功')
+                if result.get('output_file'):
+                    output += f"\n已保存到: {result['output_file']}"
+                self.memdir.append_memory(
+                    f"[AI Task Completed] {task_name}: {output[:200]}",
+                    "task_result"
+                )
+                print(f"[KAIROS-mini] ✅ AI任务完成")
+            else:
+                error = result.get('error', '未知错误')
+                self.memdir.append_memory(
+                    f"[AI Task Failed] {task_name}: {error}",
+                    "task_error"
+                )
+                print(f"[KAIROS-mini] ❌ AI任务失败: {error}")
+                
+        except Exception as e:
+            print(f"[KAIROS-mini] ❌ AI任务执行异常: {e}")
+            self.memdir.append_memory(
+                f"[AI Task Error] {task.get('name', '')}: {str(e)}",
+                "task_error"
             )
     
     def _update_heartbeat(self):
@@ -334,6 +452,17 @@ class KAIROSmini:
         ]
         
         self.openclaw.write_heartbeat(items, title="KAIROS-mini Status")
+    
+    def _persist_state(self):
+        """---- Fix #1: 持久化状态到磁盘 ----"""
+        try:
+            state_file = self.workspace / ".kairos" / "state.json"
+            self.state.save_to_file(state_file)
+            # 也保存 crontab 任务
+            tasks_file = self.workspace / ".kairos" / "scheduled_tasks.json"
+            self.crontab.save_tasks_to_file(tasks_file)
+        except Exception as e:
+            print(f"[KAIROS-mini] 状态持久化失败: {e}")
     
     # ---- 命令行接口 ----
     

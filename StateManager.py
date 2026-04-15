@@ -30,6 +30,7 @@ class SessionCronTask:
     created_at: int
     recurring: bool = False
     agent_id: Optional[str] = None
+    last_run: int = 0
 
 
 class StateManager:
@@ -54,7 +55,7 @@ class StateManager:
         self.invoked_skills: Dict[str, SkillInfo] = {}
         
         # scheduledTasksEnabled
-        self.scheduled_tasks_enabled: bool = False
+        self.scheduled_tasks_enabled: bool = True
         
         # isRemoteMode
         self.is_remote_mode: bool = False
