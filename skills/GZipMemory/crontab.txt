@@ -1,0 +1,2 @@
+# GZipMemory 归档任务 - 每天凌晨3点30分执行
+30 3 * * * cd ~/.openclaw/workspace/skills/GZipMemory && python3 cli.py archive --days 30 >> logs/archive.log 2>&1

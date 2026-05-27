@@ -1,15 +1,13 @@
-"""
-search_core.py - 统一搜索核心逻辑
-search_memory.py 和 search_tool.py 的公共部分
-"""
+"""search_core.py - unified search core logic for search_memory.py and search_tool.py."""
 
-from datetime import datetime, timedelta
-from pathlib import Path
-from typing import Any, Dict, List
+from __future__ import annotations
 
 import importlib.util
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any
 
-# 加载 archiver 模块（兼容两种导入方式）
+# Load archiver module (compatible with both import styles)
 MODULE_PATH = Path(__file__).parent / "archiver.py"
 spec = importlib.util.spec_from_file_location("archiver_module", MODULE_PATH)
 archiver_module = importlib.util.module_from_spec(spec)
@@ -17,72 +15,77 @@ spec.loader.exec_module(archiver_module)
 MemoryArchiver = archiver_module.MemoryArchiver
 
 
-def _search_recent_logs(archiver: MemoryArchiver, query: str, days: int) -> List[Dict[str, Any]]:
-    """
-    搜索近期日志（memory/ 目录中未归档的文件）
+def _search_recent_logs(
+    archiver: MemoryArchiver, query: str, days: int,
+) -> list[dict[str, Any]]:
+    """Search recent logs (unarchived files in memory/ directory).
 
     Args:
-        archiver: MemoryArchiver 实例
-        query: 搜索关键词
-        days: 搜索范围（天）
+        archiver: MemoryArchiver instance.
+        query: Search keyword.
+        days: Search range (days).
 
     Returns:
-        近期日志结果列表
+        List of recent log results.
+
     """
-    results: List[Dict[str, Any]] = []
+    results: list[dict[str, Any]] = []
     memory_dir: Path = archiver.memory_dir
-    cutoff: datetime = datetime.now() - timedelta(days=min(days, 30))
+    cutoff: datetime = datetime.now(tz=timezone.utc) - timedelta(days=min(days, 30))
 
     for log_file in memory_dir.glob("????-??-??.md"):
         date_str: str = log_file.stem
         try:
-            file_date: datetime = datetime.strptime(date_str, "%Y-%m-%d")
+            file_date: datetime = datetime.strptime(date_str, "%Y-%m-%d").replace(
+                tzinfo=timezone.utc,
+            )
             if file_date >= cutoff:
                 content: str = log_file.read_text(encoding="utf-8")
                 if query.lower() in content.lower():
-                    results.append({
-                        "date": date_str,
-                        "content": content,
-                        "source": f"memory/{log_file.name}"
-                    })
+                    results.append(
+                        {
+                            "date": date_str,
+                            "content": content,
+                            "source": f"memory/{log_file.name}",
+                        },
+                    )
         except ValueError:
             continue
 
     return results
 
 
-def _format_search_results(
-    recent_results: List[Dict[str, Any]],
-    archive_results: List[Dict[str, Any]],
+def _format_search_results(  # noqa: PLR0913
+    recent_results: list[dict[str, Any]],
+    archive_results: list[dict[str, Any]],
     memory_md_content: str | None,
     query: str,
     days: int,
     max_content_len: int = 500,
 ) -> str:
-    """格式化搜索结果为可读文本"""
+    """Format search results into readable text."""
     total: int = len(recent_results) + len(archive_results) + (1 if memory_md_content else 0)
-    output: List[str] = []
-    output.append(f"🔍 搜索「{query}」，{days}天内找到 {total} 条结果：\n")
+    output: list[str] = []
+    output.append(f"Search for '{query}', found {total} results in {days} days:\n")
 
-    # MEMORY.md 结果
+    # MEMORY.md results
     if memory_md_content:
-        output.append("📌 **MEMORY.md**")
-        output.append("（匹配）\n")
+        output.append("MEMORY.md (matched)\n")
 
-    # 近期日志
+    # Recent logs
     if recent_results:
-        output.append("\n📅 **近期日志**")
+        output.append("\nRecent logs")
         for r in recent_results:
             output.append(f"\n### {r['date']} ###")
-            output.append(r['content'][:max_content_len])
+            output.append(r["content"][:max_content_len])
             output.append("\n")
 
-    # 归档日志
+    # Archived logs
     if archive_results:
-        output.append("\n📦 **归档日志**")
+        output.append("\nArchived logs")
         for r in archive_results:
             output.append(f"\n### {r['date']} (archive) ###")
-            output.append(r['content'][:max_content_len])
+            output.append(r["content"][:max_content_len])
             output.append("\n")
 
     return "\n".join(output)

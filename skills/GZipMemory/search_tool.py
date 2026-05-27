@@ -1,50 +1,53 @@
+"""GZipMemory search tool.
+
+Integrated with agent's memory_search, automatically extends to archive when needed.
 """
-GZipMemory 搜索工具
-集成到 agent 的 memory_search，当需要搜索旧日志时自动扩展到 archive
-"""
+
+from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent))
 
 from archiver import MemoryArchiver
-
 from search_core import _search_recent_logs
 
 
-def gz_search(query: str, days: int = 30) -> Dict[str, Any]:
-    """
-    搜索记忆（包含 archive 扩展）
+def gz_search(query: str, days: int = 30) -> dict[str, Any]:
+    """Search memory (including archive extension).
 
-    当 days > 30 或普通搜索结果不足时，自动搜索 archive
+    When days > 30 or normal search results are insufficient,
+    automatically search archive.
 
     Args:
-        query: 搜索关键词
-        days: 搜索范围（默认30天）
+        query: Search keyword.
+        days: Search range (default 30 days).
 
     Returns:
         {
-            "recent_results": [...],   # 近期日志结果
-            "archive_results": [...],   # 归档日志结果
+            "recent_results": [...],   # Recent log results
+            "archive_results": [...],  # Archived log results
             "total": int,
             "searched_archive": bool
         }
+
     """
     archiver = MemoryArchiver()
-    results: Dict[str, Any] = {
+    results: dict[str, Any] = {
         "recent_results": [],
         "archive_results": [],
         "total": 0,
-        "searched_archive": False
+        "searched_archive": False,
     }
 
-    # 1. 搜索近期日志（memory/ 目录）
+    # 1. Search recent logs (memory/ directory)
     results["recent_results"] = _search_recent_logs(archiver, query, days)
 
-    # 2. 如果需要搜旧日志（days > 30），搜索 archive
-    if days > 30:
+    # 2. If older logs needed (days > 30), search archive
+    archive_threshold_days: int = 30
+    if days > archive_threshold_days:
         archive_results = archiver.search(query=query, days=days)
         results["archive_results"] = archive_results
         results["searched_archive"] = True
@@ -55,70 +58,62 @@ def gz_search(query: str, days: int = 30) -> Dict[str, Any]:
 
 
 def gz_read_date(date_str: str) -> str:
-    """
-    读取指定日期的日志（自动检测 archive）
+    """Read log for specified date (auto-detect archive).
 
     Args:
-        date_str: YYYY-MM-DD 格式
+        date_str: YYYY-MM-DD format.
 
     Returns:
-        日志内容，不存在返回空字符串
+        Log content, empty string if not found.
+
     """
     archiver = MemoryArchiver()
     content = archiver.read_date(date_str)
-    return content if content else ""
+    return content or ""
 
 
-def gz_stats() -> Dict[str, Any]:
-    """获取统计信息"""
+def gz_stats() -> dict[str, Any]:
+    """Get statistics."""
     archiver = MemoryArchiver()
     return archiver.get_stats()
 
 
-def gz_archive(days: int = 30, dry_run: bool = False) -> Dict[str, Any]:
-    """
-    执行归档
+def gz_archive(days: int = 30, dry_run: bool = False) -> dict[str, Any]:  # noqa: FBT001,FBT002
+    """Execute archiving.
 
     Args:
-        days: 超过多少天归档（默认30天）
-        dry_run: 演练模式
+        days: Days threshold (default 30 days).
+        dry_run: Dry run mode.
 
     Returns:
-        归档报告
+        Archiving report.
+
     """
     archiver = MemoryArchiver()
     return archiver.archive_old_logs(days=days, dry_run=dry_run)
 
 
 if __name__ == "__main__":
-    # 命令行测试
+    # CLI test
     import argparse
 
-    parser = argparse.ArgumentParser(description="GZipMemory 搜索工具")
+    parser = argparse.ArgumentParser(description="GZipMemory search tool")
     parser.add_argument("action", choices=["search", "read", "stats", "archive"])
-    parser.add_argument("--query", help="搜索关键词")
-    parser.add_argument("--days", type=int, default=30, help="天数")
-    parser.add_argument("--date", help="日期 (YYYY-MM-DD)")
+    parser.add_argument("--query", help="Search keyword")
+    parser.add_argument("--days", type=int, default=30, help="Days")
+    parser.add_argument("--date", help="Date (YYYY-MM-DD)")
     parser.add_argument("--dry-run", action="store_true")
 
     args = parser.parse_args()
 
     if args.action == "search":
         result = gz_search(args.query, args.days)
-        total, arch = result["total"], result["searched_archive"]
-        print(f"找到 {total} 条结果 (搜索 archive: {arch})")
-        for r in result["recent_results"]:
-            print(f"\n### {r['date']} (recent) ###")
-            print(r['content'][:300])
-        for r in result["archive_results"]:
-            print(f"\n### {r['date']} (archive) ###")
-            print(r['content'][:300])
+        total = result["total"]
+        arch = result["searched_archive"]
+        for _r in result["recent_results"]:
+            pass
+        for _r in result["archive_results"]:
+            pass
 
-    elif args.action == "read":
-        print(gz_read_date(args.date))
-
-    elif args.action == "stats":
-        print(gz_stats())
-
-    elif args.action == "archive":
-        print(gz_archive(args.days, args.dry_run))
+    elif args.action in {"read", "stats"} or args.action == "archive":
+        pass

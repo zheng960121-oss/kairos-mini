@@ -1,13 +1,6 @@
-"""
-类型别名定义
-"""
+"""Type alias definitions."""
 
-from typing import Dict, List, TypedDict
-
-
-Year = int
-Days = int
-Query = str
+from typing import TypedDict
 
 
 class ArchiveResult(TypedDict):
@@ -16,8 +9,8 @@ class ArchiveResult(TypedDict):
     archived_size_compressed: int
     compression_ratio: str
     cutoff_days: int
-    skipped: List[str]
-    errors: List[str]
+    skipped: list[str]
+    errors: list[str]
 
 
 class SearchResult(TypedDict):
@@ -27,8 +20,13 @@ class SearchResult(TypedDict):
 
 
 class StatsResult(TypedDict):
-    normal_logs: Dict[str, int]
-    archived_logs: Dict[str, int]
+    normal_logs: dict[str, int]
+    archived_logs: dict[str, int]
     total_size_bytes: int
     compression_saved: int
     archive_dir: str
+
+
+Year = int
+Days = int
+Query = str
